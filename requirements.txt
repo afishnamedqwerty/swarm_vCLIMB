@@ -1,0 +1,13 @@
+numpy==1.26.4
+scipy==1.11.4
+torch==2.2.2
+torchvision==0.17.2
+torchaudio==2.2.2
+faiss-gpu==1.7.4
+lightgbm==4.3.0
+tqdm==4.66.2
+imagebind @ git+https://github.com/facebookresearch/ImageBind.git
+ffmpeg
+boto
+click
+tqdm
