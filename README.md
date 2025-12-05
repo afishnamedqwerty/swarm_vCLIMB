@@ -89,6 +89,12 @@ Use the embeddings and cluster assignments to emit JSONL metadata, then process 
 
 The `datamap-rs` directory contains the upstream toolkit; consult its README for CLI usage.
 
+Pipeline notes:
+- No source changes to `datamap-rs` are needed; `scripts/run_pipeline.sh` builds the local binary (`DATAMAP_BIN` override supported) and uses the CLI directly.
+- JSONL schema must include `cluster_id` (and `quality_scores.*` if you want to filter on them); add `content_hash` if you plan to use the `group` dedup stage.
+- Filtering config lives in `datamap-rs/configs/filter_config.yaml`; adjust thresholds or add annotators as needed and pass via `--config`.
+- The canonical op sequence is `reshard -> map -> discrete-partition -> group` (optional) over the JSONL emitted by `scripts/export_jsonl.py`.
+
 ## End-to-End Runner
 `scripts/run_pipeline.sh` wires everything together:
 - VAST embedding generation
@@ -133,7 +139,6 @@ bash scripts/run_pipeline.sh
 - Stage 2: Optimize {V_visual, audio clusters} → freeze as V_av
 - Stage 3: Optimize {V_av, speech/instructional} → freeze as V_full
 - Stage 4: Optimize {V_full, synthetic data} → final production mixture
-
 
 
 
