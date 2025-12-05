@@ -1,0 +1,55 @@
+# Dockerfile for proxy training worker pods
+# Optimized for 30M+ parameter model training with GPU support
+
+FROM pytorch/pytorch:2.2.2-cuda11.8-cudnn8-runtime
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install Python dependencies
+COPY requirements-distributed.txt .
+COPY requirements.txt .
+
+# Install core dependencies needed for training
+RUN pip install --no-cache-dir \
+    numpy==1.26.4 \
+    scipy==1.11.4 \
+    torch==2.2.2 \
+    torchvision==0.17.2 \
+    torchaudio==2.2.2 \
+    tqdm==4.66.2 \
+    fastapi==0.109.0 \
+    uvicorn[standard]==0.27.0 \
+    redis==5.0.1 \
+    httpx==0.26.0 \
+    pydantic==2.5.3
+
+# Copy only necessary modules for worker
+COPY common/ ./common/
+COPY sampler/proxy.py ./sampler/proxy.py
+COPY sampler/proxy_impl.py ./sampler/proxy_impl.py
+COPY sampler/__init__.py ./sampler/__init__.py
+COPY worker/ ./worker/
+
+# Create data directory for mounted PVC
+RUN mkdir -p /data
+
+# Expose worker service port
+EXPOSE 8080
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV CUDA_VISIBLE_DEVICES=0
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Run worker service
+CMD ["python", "-m", "worker.worker_main"]

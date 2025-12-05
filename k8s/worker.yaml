@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy-worker
+  namespace: swarm-vclimb
+  labels:
+    app: proxy-worker
+    component: training
+spec:
+  replicas: 5  # Adjust based on available GPU nodes
+  selector:
+    matchLabels:
+      app: proxy-worker
+  template:
+    metadata:
+      labels:
+        app: proxy-worker
+        version: v1
+    spec:
+      volumes:
+      - name: embeddings
+        persistentVolumeClaim:
+          claimName: embeddings-pvc
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 8Gi
+      containers:
+      - name: worker
+        image: your-registry/swarm-worker:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        volumeMounts:
+        - name: embeddings
+          mountPath: /data
+          readOnly: true
+        - name: shm
+          mountPath: /dev/shm
+        envFrom:
+        - configMapRef:
+            name: swarm-config
+        env:
+        - name: ORCHESTRATOR_URL
+          value: "http://orchestrator:8000"
+        resources:
+          requests:
+            memory: "16Gi"
+            cpu: "8"
+            nvidia.com/gpu: "1"
+          limits:
+            memory: "32Gi"
+            cpu: "16"
+            nvidia.com/gpu: "1"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+      # Node selector for GPU nodes
+      nodeSelector:
+        accelerator: nvidia-gpu
+      # Toleration for GPU taints
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-service
+  namespace: swarm-vclimb
+  labels:
+    app: proxy-worker
+spec:
+  type: ClusterIP
+  selector:
+    app: proxy-worker
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+    protocol: TCP
+  sessionAffinity: None
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: worker-pdb
+  namespace: swarm-vclimb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: proxy-worker

@@ -1,0 +1,20 @@
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: swarm-vclimb
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: redis-permissive
+  namespace: swarm-vclimb
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  mtls:
+    mode: PERMISSIVE

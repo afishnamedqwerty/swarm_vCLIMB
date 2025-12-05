@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: swarm-config
+  namespace: swarm-vclimb
+data:
+  # Redis configuration
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  QUEUE_NAME: "training_queue"
+
+  # Data paths (relative to mounted PVC)
+  DATA_PATH: "/data"
+  EMBEDDINGS_FILE: "embeddings.npy"
+  LABELS_FILE: "labels.json"
+  ASSIGNMENTS_FILE: "assignments.npy"
+  VIDEO_LIST_FILE: "video_list.txt"
+
+  # Training configuration
+  HIDDEN_DIM: "256"
+  EPOCHS: "2"
+  BATCH_SIZE: "64"
+  LEARNING_RATE: "0.001"
+  WEIGHT_DECAY: "0.0001"
+
+  # Orchestrator configuration
+  ORCHESTRATOR_PORT: "8000"
+  WORKER_PORT: "8080"

@@ -1,0 +1,53 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-orchestrator-to-redis
+  namespace: swarm-vclimb
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/swarm-vclimb/sa/default"]
+    to:
+    - operation:
+        ports: ["6379"]
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-worker-to-redis
+  namespace: swarm-vclimb
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/swarm-vclimb/sa/default"]
+    to:
+    - operation:
+        ports: ["6379"]
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-worker-to-orchestrator
+  namespace: swarm-vclimb
+spec:
+  selector:
+    matchLabels:
+      app: orchestrator
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/swarm-vclimb/sa/default"]
+    to:
+    - operation:
+        ports: ["8000"]

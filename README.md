@@ -95,7 +95,7 @@ Pipeline notes:
 - Filtering config lives in `datamap-rs/configs/filter_config.yaml`; adjust thresholds or add annotators as needed and pass via `--config`.
 - The canonical op sequence is `reshard -> map -> discrete-partition -> group` (optional) over the JSONL emitted by `scripts/export_jsonl.py`.
 
-## End-to-End Runner
+## Local End-to-End Runner
 `scripts/run_pipeline.sh` wires everything together:
 - VAST embedding generation
 - FAISS clustering
@@ -107,6 +107,170 @@ Configure `VIDEO_LIST`, `LABELS_JSON`, `OUT_DIR`, `N_CLUSTERS`, then run:
 ```bash
 bash scripts/run_pipeline.sh
 ```
+
+## Distributed End-to-End Runner
+`scripts/run_pipeline_k8s.sh` extends the pipeline for Kubernetes-based distributed training:
+- VAST embedding generation (local)
+- FAISS clustering (local)
+- ffprobe-based quality scoring (local)
+- JSONL export + datamap filtering/resharding (local)
+- **Upload data to Kubernetes PVC**
+- **Distributed CLIMB bootstrapping via worker pool**
+
+This script performs steps 1-4 locally to prepare data, then uploads embeddings, assignments, labels, and video list to Kubernetes shared storage. Training jobs are distributed across GPU worker pods coordinated by the orchestrator via Redis queue.
+
+Configure environment variables, ensure Kubernetes cluster is accessible, then run:
+```bash
+export VIDEO_LIST=data/videos.txt
+export LABELS_JSON=data/calibration_labels.json
+export N_CLUSTERS=1000
+export ITERATIONS=3
+export SAMPLES_PER_ITERATION=64,32,16
+
+bash scripts/run_pipeline_k8s.sh
+```
+
+The script will:
+1. Prepare data locally (same as local runner)
+2. Upload to Kubernetes PVC automatically
+3. Submit training job to orchestrator API
+4. Poll for completion and retrieve results
+
+**Prerequisites**: Kubernetes cluster with GPU nodes, deployed manifests (`kubectl apply -f k8s/ istio/`)
+
+## Distributed Kubernetes Deployment
+
+For production deployments with 30M+ parameter proxy models, the system can be deployed to Kubernetes with distributed training across multiple GPU worker pods.
+
+### Architecture
+
+- **Orchestrator Pod**: Manages CLIMB loop, Dirichlet sampling, LightGBM predictor
+- **Worker Pods**: Train individual proxy models in parallel (horizontally scalable)
+- **Redis Pod**: Job queue for distributing training tasks
+- **Shared Storage**: PersistentVolumes for embeddings, assignments, labels
+- **Istio Service Mesh**: mTLS, traffic management, load balancing
+
+### Quick Start
+
+1. **Build and push Docker images**:
+```bash
+docker build -f Dockerfile.orchestrator -t your-registry/swarm-orchestrator:latest .
+docker build -f Dockerfile.worker -t your-registry/swarm-worker:latest .
+docker push your-registry/swarm-orchestrator:latest
+docker push your-registry/swarm-worker:latest
+```
+
+2. **Update image references** in `k8s/orchestrator.yaml` and `k8s/worker.yaml`
+
+3. **Prepare data**: Upload embeddings, assignments, labels, and video list to shared PVC:
+```bash
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/pvc.yaml
+
+# Create temporary data loader pod
+kubectl run -n swarm-vclimb data-loader --image=busybox --restart=Never -- sleep 3600
+kubectl set volume pod/data-loader -n swarm-vclimb --add \
+  --name=data --type=pvc --claim-name=embeddings-pvc --mount-path=/data
+
+# Copy data files
+kubectl cp outputs/embeddings.npy swarm-vclimb/data-loader:/data/
+kubectl cp outputs/assignments.npy swarm-vclimb/data-loader:/data/
+kubectl cp data/calibration_labels.json swarm-vclimb/data-loader:/data/labels.json
+kubectl cp data/videos.txt swarm-vclimb/data-loader:/data/video_list.txt
+```
+
+4. **Deploy to Kubernetes**:
+```bash
+# Deploy core components
+kubectl apply -f k8s/configmap.yaml
+kubectl apply -f k8s/redis.yaml
+kubectl apply -f k8s/orchestrator.yaml
+kubectl apply -f k8s/worker.yaml
+
+# Deploy Istio configuration
+kubectl apply -f istio/peer-authentication.yaml
+kubectl apply -f istio/virtual-service.yaml
+kubectl apply -f istio/destination-rule.yaml
+kubectl apply -f istio/authorization-policy.yaml
+
+# Verify deployment
+kubectl get pods -n swarm-vclimb
+```
+
+5. **Start distributed training**:
+```bash
+# Port forward to orchestrator
+kubectl port-forward -n swarm-vclimb svc/orchestrator 8000:8000
+
+# Submit training job
+curl -X POST http://localhost:8000/bootstrap/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "embeddings_path": "embeddings.npy",
+    "assignments_path": "assignments.npy",
+    "labels_path": "labels.json",
+    "video_list_path": "video_list.txt",
+    "iterations": 3,
+    "samples_per_iteration": [64, 32, 16],
+    "config": {
+      "hidden_dim": 256,
+      "epochs": 2,
+      "batch_size": 64
+    }
+  }'
+
+# Monitor status
+curl http://localhost:8000/bootstrap/status
+
+# Retrieve results
+curl http://localhost:8000/bootstrap/result > mixture.json
+```
+
+### Scaling Workers
+
+Scale horizontally based on available GPU resources:
+
+```bash
+# Scale up to 10 workers
+kubectl scale deployment proxy-worker -n swarm-vclimb --replicas=10
+
+# Scale down to 3 workers
+kubectl scale deployment proxy-worker -n swarm-vclimb --replicas=3
+```
+
+### Configuration
+
+Edit `k8s/configmap.yaml` to adjust training parameters:
+
+```yaml
+data:
+  HIDDEN_DIM: "256"
+  EPOCHS: "2"
+  BATCH_SIZE: "64"
+  LEARNING_RATE: "0.001"
+```
+
+Edit `k8s/worker.yaml` to adjust resource limits for 30M+ parameter models:
+
+```yaml
+resources:
+  requests:
+    memory: "16Gi"
+    cpu: "8"
+    nvidia.com/gpu: "1"
+```
+
+### Resource Requirements
+
+- Kubernetes cluster (v1.24+) with GPU nodes
+- Istio service mesh (v1.18+) installed
+- Storage class supporting ReadWriteMany (NFS, CephFS, etc.)
+- NVIDIA device plugin for GPU scheduling
+- Worker pods: 16-32Gi memory, 1 GPU (V100 or better)
+- Orchestrator: 8-16Gi memory, no GPU needed
+- Storage: 100Gi+ for embeddings/data (ReadWriteMany PVC)
+- Recommended: 5-10 worker replicas for good throughput
+
 ## Roadmap 
 ### Swarm-Based Mixing
 1. Swarm construction

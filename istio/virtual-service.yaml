@@ -1,0 +1,52 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: orchestrator-vs
+  namespace: swarm-vclimb
+spec:
+  hosts:
+  - orchestrator
+  - orchestrator.swarm-vclimb.svc.cluster.local
+  http:
+  - match:
+    - uri:
+        prefix: /bootstrap
+    route:
+    - destination:
+        host: orchestrator
+        port:
+          number: 8000
+    timeout: 7200s  # 2 hour timeout for long-running bootstrap
+    retries:
+      attempts: 0  # Don't retry bootstrap requests
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: orchestrator
+        port:
+          number: 8000
+    timeout: 60s
+    retries:
+      attempts: 3
+      perTryTimeout: 20s
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: worker-vs
+  namespace: swarm-vclimb
+spec:
+  hosts:
+  - worker-service
+  - worker-service.swarm-vclimb.svc.cluster.local
+  http:
+  - route:
+    - destination:
+        host: worker-service
+        port:
+          number: 8080
+    timeout: 7200s  # 2 hour timeout for training jobs
+    retries:
+      attempts: 0  # Don't retry training jobs

@@ -1,0 +1,15 @@
+# Additional dependencies for distributed Kubernetes deployment
+# Include base requirements
+-r requirements.txt
+
+# API/Communication
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+redis==5.0.1
+httpx==0.26.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Optional: gRPC (if needed for higher performance)
+# grpcio==1.60.0
+# grpcio-tools==1.60.0

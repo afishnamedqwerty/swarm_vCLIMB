@@ -1,0 +1,57 @@
+# Dockerfile for orchestrator pod
+# Manages CLIMB loop, sampling, prediction, and coordination
+
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements-distributed.txt .
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    numpy==1.26.4 \
+    scipy==1.11.4 \
+    lightgbm==4.3.0 \
+    tqdm==4.66.2 \
+    boto \
+    click \
+    fastapi==0.109.0 \
+    uvicorn[standard]==0.27.0 \
+    redis==5.0.1 \
+    httpx==0.26.0 \
+    pydantic==2.5.3
+
+# Copy project modules
+COPY common/ ./common/
+COPY sampler/ ./sampler/
+COPY clustering/ ./clustering/
+COPY embeddings/ ./embeddings/
+COPY scripts/ ./scripts/
+COPY orchestrator/ ./orchestrator/
+
+# Create data directory for mounted PVC
+RUN mkdir -p /data /results
+
+# Expose API port
+EXPOSE 8000
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run orchestrator API server
+CMD ["python", "-m", "orchestrator.api_server"]

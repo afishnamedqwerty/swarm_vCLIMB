@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: swarm-vclimb
+  labels:
+    name: swarm-vclimb
+    istio-injection: enabled
